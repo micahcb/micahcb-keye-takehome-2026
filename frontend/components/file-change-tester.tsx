@@ -82,7 +82,7 @@ export function FileChangeTester() {
         ))}
       </div>
 
-      <div className="rounded-md border bg-muted/30 p-3">
+      <div className="rounded-none border bg-muted/30 p-3">
         <p className="mb-2 text-xs font-medium text-muted-foreground">
           Response
         </p>

@@ -72,7 +72,8 @@
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
-    --radius: 0.85rem;
+    /* Square UI: all --radius-* theme tokens derive from this (see @theme inline). */
+    --radius: 0;
     --sidebar: #f5f0e8;
     --sidebar-foreground: #0a1628;
     --sidebar-primary: #0a1628;
