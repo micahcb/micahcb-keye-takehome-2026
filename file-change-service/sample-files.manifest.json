@@ -1,0 +1,44 @@
+{
+  "source_dir": "/Users/michaelblackburn/MLB_Files_Backup/Jobs/Keye/micahcb-keye-takehome-2026-fresh/frontend/test_files",
+  "bucket": "uploads",
+  "prefix": "samples",
+  "count": 6,
+  "files": [
+    {
+      "file_name": "data_cleaning_pvm_cube_input_df_sales.parquet",
+      "bucket": "uploads",
+      "storage_path": "samples/data_cleaning_pvm_cube_input_df_sales.parquet",
+      "object_url": "https://ozajwosvwfyhcgutzafu.supabase.co/storage/v1/object/uploads/samples/data_cleaning_pvm_cube_input_df_sales.parquet"
+    },
+    {
+      "file_name": "sales_case_01_only_negatives.parquet",
+      "bucket": "uploads",
+      "storage_path": "samples/sales_case_01_only_negatives.parquet",
+      "object_url": "https://ozajwosvwfyhcgutzafu.supabase.co/storage/v1/object/uploads/samples/sales_case_01_only_negatives.parquet"
+    },
+    {
+      "file_name": "sales_case_02_only_refunds.parquet",
+      "bucket": "uploads",
+      "storage_path": "samples/sales_case_02_only_refunds.parquet",
+      "object_url": "https://ozajwosvwfyhcgutzafu.supabase.co/storage/v1/object/uploads/samples/sales_case_02_only_refunds.parquet"
+    },
+    {
+      "file_name": "sales_case_03_only_double_bookings.parquet",
+      "bucket": "uploads",
+      "storage_path": "samples/sales_case_03_only_double_bookings.parquet",
+      "object_url": "https://ozajwosvwfyhcgutzafu.supabase.co/storage/v1/object/uploads/samples/sales_case_03_only_double_bookings.parquet"
+    },
+    {
+      "file_name": "sales_case_04_all_three.parquet",
+      "bucket": "uploads",
+      "storage_path": "samples/sales_case_04_all_three.parquet",
+      "object_url": "https://ozajwosvwfyhcgutzafu.supabase.co/storage/v1/object/uploads/samples/sales_case_04_all_three.parquet"
+    },
+    {
+      "file_name": "sales_case_05_negatives_and_refunds.parquet",
+      "bucket": "uploads",
+      "storage_path": "samples/sales_case_05_negatives_and_refunds.parquet",
+      "object_url": "https://ozajwosvwfyhcgutzafu.supabase.co/storage/v1/object/uploads/samples/sales_case_05_negatives_and_refunds.parquet"
+    }
+  ]
+}
