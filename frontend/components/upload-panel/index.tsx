@@ -8,6 +8,9 @@ import { CleanButton } from "./clean-button"
 import { SampleDataSelector } from "./sample-data-selector"
 import { UploadDropzone } from "./upload-dropzone"
 
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_FILE_CHANGE_API_BASE_URL ?? "http://localhost:8000"
+
 function isParquetFileName(fileName: string): boolean {
   return fileName.toLowerCase().endsWith(".parquet")
 }
@@ -70,7 +73,7 @@ export function UploadPanel() {
       const formData = new FormData()
       formData.append("file", selectedFile)
 
-      const response = await fetch("/api/uploads", {
+      const response = await fetch(`${API_BASE_URL}/uploads`, {
         method: "POST",
         body: formData,
       })
@@ -78,6 +81,7 @@ export function UploadPanel() {
       const data = (await response.json()) as {
         id?: string
         error?: string
+        detail?: string
         path?: string
         duplicate?: boolean
         rowCount?: number
@@ -86,7 +90,7 @@ export function UploadPanel() {
         insertedDiffs?: number
       }
       if (!response.ok) {
-        throw new Error(data.error ?? "Failed to upload file.")
+        throw new Error(data.error ?? data.detail ?? "Failed to upload file.")
       }
 
       setUploadStatusMessage(
