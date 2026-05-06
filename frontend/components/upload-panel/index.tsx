@@ -63,20 +63,32 @@ export function UploadPanel() {
   }, [])
 
   const onClean = useCallback(async () => {
-    if (usingSampleData || !selectedFile) return
+    if (usingSampleData && !selectedSampleFile) {
+      setInvalidUploadMessage("Select a sample file before cleaning.")
+      return
+    }
+    if (!usingSampleData && !selectedFile) return
 
     setIsUploading(true)
     setInvalidUploadMessage("")
     setUploadStatusMessage("")
 
     try {
-      const formData = new FormData()
-      formData.append("file", selectedFile)
-
-      const response = await fetch(`${API_BASE_URL}/uploads`, {
-        method: "POST",
-        body: formData,
-      })
+      let response: Response
+      if (usingSampleData) {
+        response = await fetch(`${API_BASE_URL}/uploads/sample`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sampleFileName: selectedSampleFile }),
+        })
+      } else {
+        const formData = new FormData()
+        formData.append("file", selectedFile as File)
+        response = await fetch(`${API_BASE_URL}/uploads`, {
+          method: "POST",
+          body: formData,
+        })
+      }
 
       const data = (await response.json()) as {
         id?: string
@@ -95,8 +107,10 @@ export function UploadPanel() {
 
       setUploadStatusMessage(
         data.duplicate
-          ? `File already uploaded, reusing: ${data.path ?? selectedFile.name}`
-          : `Uploaded to bucket: ${data.path ?? selectedFile.name}`,
+          ? `File already processed, reusing: ${data.path ?? selectedLabel}`
+          : usingSampleData
+            ? `Sample processed: ${selectedSampleFile}`
+            : `Uploaded to bucket: ${data.path ?? selectedLabel}`,
       )
 
       const searchParams = new URLSearchParams({
@@ -115,7 +129,7 @@ export function UploadPanel() {
     } finally {
       setIsUploading(false)
     }
-  }, [router, selectedFile, usingSampleData])
+  }, [router, selectedFile, selectedLabel, selectedSampleFile, usingSampleData])
 
   const onUseSampleData = () => {
     setUsingSampleData(true)

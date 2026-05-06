@@ -47,6 +47,7 @@ export default function RootLayout({
     >
       <body>
         <ThemeProvider>
+          {/* Navbar is a horizontal navigation bar that appears at the top of the page. Universal to all pages.*/}
           <Navbar />
           {children}
         </ThemeProvider>

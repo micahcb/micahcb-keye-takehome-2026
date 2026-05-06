@@ -1,4 +1,3 @@
-import { getPostgresPool } from "@/lib/postgres"
 import { FileActionButtons, RowActionButtons } from "@/components/review-actions"
 
 type ReviewPageProps = {
@@ -28,6 +27,9 @@ type DiffRow = {
   status: string
 }
 
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_FILE_CHANGE_API_BASE_URL ?? "http://localhost:8000"
+
 export default async function ReviewPage({ searchParams }: ReviewPageProps) {
   const params = (await searchParams) ?? {}
   const fileId = getQueryValue(params.fileId)
@@ -38,46 +40,15 @@ export default async function ReviewPage({ searchParams }: ReviewPageProps) {
   let rowsWithDiffs: Array<{ row: DiffRow; diffs: DiffCell[] }> = []
 
   if (fileId) {
-    const postgresPool = getPostgresPool()
-    const rowResult = await postgresPool.query<DiffRow>(
-      `
-        SELECT id, source_row_idx, status
-        FROM diff_rows
-        WHERE file_id = $1
-        ORDER BY source_row_idx ASC
-        LIMIT 25
-      `,
-      [fileId],
+    const response = await fetch(
+      `${API_BASE_URL}/review/file-data?fileId=${encodeURIComponent(fileId)}&limit=25`,
+      { cache: "no-store" },
     )
-
-    if (rowResult.rows.length > 0) {
-      const rowIds = rowResult.rows.map((row) => row.id)
-      const diffResult = await postgresPool.query<DiffCell & { row_id: string }>(
-        `
-          SELECT id, row_id, column_id, suggested_val, current_val
-          FROM diffs
-          WHERE row_id = ANY($1::uuid[])
-          ORDER BY row_id ASC, column_id ASC
-        `,
-        [rowIds],
-      )
-
-      const groupedDiffs = new Map<string, DiffCell[]>()
-      for (const diff of diffResult.rows) {
-        const existing = groupedDiffs.get(diff.row_id) ?? []
-        existing.push({
-          id: diff.id,
-          column_id: diff.column_id,
-          suggested_val: diff.suggested_val,
-          current_val: diff.current_val,
-        })
-        groupedDiffs.set(diff.row_id, existing)
+    if (response.ok) {
+      const data = (await response.json()) as {
+        rows?: Array<{ row: DiffRow; diffs: DiffCell[] }>
       }
-
-      rowsWithDiffs = rowResult.rows.map((row) => ({
-        row,
-        diffs: groupedDiffs.get(row.id) ?? [],
-      }))
+      rowsWithDiffs = data.rows ?? []
     }
   }
 
