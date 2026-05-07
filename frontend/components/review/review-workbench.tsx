@@ -4,115 +4,31 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import {
+  getReviewFileData,
   postReviewFileAction,
   postReviewRowAction,
   type ReviewAction,
 } from "@/lib/review-api"
 
-export type DiffCell = {
-  id: string
-  column_id: string
-  suggested_val: number | null
-  current_val: number | null
-}
+import { buildReviewGridCsv, downloadTextFile } from "./review-csv"
+import { uniqSortedColumns } from "./review-columns"
+import { canApplyAction, isAcceptOrDenyStatus } from "./review-eligibility"
+import { formatCell, titleCaseStatus } from "./review-format"
+import { statusStyles } from "./review-status-styles"
+import {
+  STICKY_ROW_LEFT_STYLE,
+  STICKY_STATUS_LEFT_STYLE,
+} from "./sticky-layout"
+import type { ReviewWorkbenchProps, RowBundle } from "./types"
 
-export type DiffRow = {
-  id: string
-  source_row_idx: number
-  status: string
-}
+export type { DiffCell, DiffRow, RowBundle } from "./types"
 
-export type RowBundle = {
-  row: DiffRow
-  diffs: DiffCell[]
-  fullRow?: Record<string, string | number | null>
-}
-
-type ReviewWorkbenchProps = {
-  fileId: string
-  summary: {
-    rowCount: string
-    cellCount: string
-    rowsAdded: string
-    diffsAdded: string
-  }
-  fullColumns: string[]
-  initialRows: RowBundle[]
-}
-
-/** Match sticky `left` on column 2 to the pixel width of column 1 or headers overlap when scrolling. */
-const STICKY_ROW_W = 120
-const STICKY_STATUS_W = 152
-/** Pull status column slightly under row to close subpixel gaps (avoids bleed-through when scrolling). */
-const STICKY_COL_OVERLAP = 2
-const STICKY_ROW_LEFT_STYLE = { left: 0, width: STICKY_ROW_W, minWidth: STICKY_ROW_W, maxWidth: STICKY_ROW_W }
-const STICKY_STATUS_LEFT_STYLE = {
-  left: STICKY_ROW_W - STICKY_COL_OVERLAP,
-  width: STICKY_STATUS_W + STICKY_COL_OVERLAP,
-  minWidth: STICKY_STATUS_W + STICKY_COL_OVERLAP,
-  maxWidth: STICKY_STATUS_W + STICKY_COL_OVERLAP,
-}
-
-function titleCaseStatus(status: string): string {
-  if (!status) return "Suggested"
-  return status.charAt(0).toUpperCase() + status.slice(1)
-}
-
-function formatCell(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return "—"
-  if (typeof value === "number") {
-    if (Number.isNaN(value)) return "—"
-    const abs = Math.abs(value)
-    if (abs >= 1e7 || (abs > 0 && abs < 1e-4)) return value.toExponential(2)
-    return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
-  }
-  if (value.length === 0) return "—"
-  return value
-}
-
-function columnSortKey(name: string): string | number[] {
-  const parts = name.split("_")
-  if (parts.length >= 2 && parts.every((p) => /^\d+$/.test(p))) {
-    return parts.map((p) => Number.parseInt(p, 10))
-  }
-  return name
-}
-
-function uniqSortedColumns(rows: RowBundle[]): string[] {
-  const set = new Set<string>()
-  for (const bundle of rows) {
-    for (const d of bundle.diffs) set.add(d.column_id)
-  }
-  return [...set].sort((a, b) => {
-    const ka = columnSortKey(a)
-    const kb = columnSortKey(b)
-    if (Array.isArray(ka) && Array.isArray(kb)) {
-      for (let i = 0; i < Math.max(ka.length, kb.length); i++) {
-        const da = ka[i] ?? 0
-        const db = kb[i] ?? 0
-        if (da !== db) return da - db
-      }
-      return 0
-    }
-    return String(ka).localeCompare(String(kb))
-  })
-}
-
-function statusStyles(status: string, titleBar = false): string {
-  const s = status.toLowerCase()
-  if (s === "accepted") return "bg-emerald-500/15 text-emerald-900 border-emerald-700/30"
-  if (s === "denied") return "bg-destructive/10 text-destructive border-destructive/30"
-  return titleBar ? "bg-[#89b4fa]/15 text-[#f5f0e8] border-[#89b4fa]/40" : "bg-[#89b4fa]/15 text-[#0a1628] border-[#89b4fa]/40"
-}
-
-function canApplyAction(status: string, action: ReviewAction): boolean {
-  const normalized = status.toLowerCase()
-  if (action === "accept" || action === "reject") return normalized === "suggested"
-  if (action === "revert") return normalized === "accepted" || normalized === "denied"
-  return false
-}
-
-export function ReviewWorkbench({ fileId, summary, fullColumns, initialRows }: ReviewWorkbenchProps) {
+export function ReviewWorkbench({
+  fileId,
+  summary,
+  fullColumns,
+  initialRows,
+}: ReviewWorkbenchProps) {
   const [rows, setRows] = useState<RowBundle[]>(initialRows)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -267,6 +183,52 @@ export function ReviewWorkbench({ fileId, summary, fullColumns, initialRows }: R
   const canAcceptAny = rows.some((bundle) => canApplyAction(bundle.row.status, "accept"))
   const canRejectAny = rows.some((bundle) => canApplyAction(bundle.row.status, "reject"))
   const canRevertAny = rows.some((bundle) => canApplyAction(bundle.row.status, "revert"))
+  const allLoadedRowsAcceptOrDeny = useMemo(
+    () => rows.length > 0 && rows.every((b) => isAcceptOrDenyStatus(b.row.status)),
+    [rows],
+  )
+  const canExport =
+    Boolean(fileId) &&
+    rows.length > 0 &&
+    allLoadedRowsAcceptOrDeny &&
+    rows.some((b) => b.diffs.length > 0)
+
+  const runExport = useCallback(async () => {
+    if (!canExport || !fileId) return
+    setBusy(true)
+    try {
+      const data = await getReviewFileData(fileId, 10_000)
+      const freshRows = data.rows ?? []
+      if (freshRows.length === 0) {
+        showToast("Nothing to export.")
+        return
+      }
+      const unresolved = freshRows.filter((b) => !isAcceptOrDenyStatus(b.row.status))
+      if (unresolved.length > 0) {
+        showToast(
+          "Export is only available after every row is accepted or denied. Refresh if your list is out of date.",
+        )
+        return
+      }
+      const fullRowById = new Map(rows.map((b) => [b.row.id, b.fullRow]))
+      const merged: RowBundle[] = freshRows.map((b) => ({
+        row: b.row,
+        diffs: b.diffs,
+        fullRow: fullRowById.get(b.row.id),
+      }))
+      const exportColumns =
+        fullColumns.length > 0 ? fullColumns : uniqSortedColumns(merged)
+      const csv = buildReviewGridCsv(merged, exportColumns)
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
+      const shortId = fileId.replace(/-/g, "").slice(0, 8)
+      downloadTextFile(csv, `keye-review-${shortId}-${stamp}.csv`, "text/csv")
+      showToast("Exported CSV download started")
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Export failed")
+    } finally {
+      setBusy(false)
+    }
+  }, [canExport, fileId, fullColumns, rows, showToast])
 
   return (
     <div className="flex min-h-svh flex-col">
@@ -311,6 +273,21 @@ export function ReviewWorkbench({ fileId, summary, fullColumns, initialRows }: R
               onClick={() => void runFileAction("revert")}
             >
               Revert all
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-none border-[#89b4fa] text-[#89b4fa] hover:bg-[#89b4fa]/10"
+              disabled={busy || !canExport}
+              title={
+                canExport
+                  ? "Download a CSV that matches this table: accepted rows use suggested values; denied rows keep originals."
+                  : "Accept or deny every row (including any not shown on this page) before exporting."
+              }
+              onClick={() => void runExport()}
+            >
+              Export CSV
             </Button>
           </div>
         </div>

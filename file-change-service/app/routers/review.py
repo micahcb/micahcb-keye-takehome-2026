@@ -56,7 +56,7 @@ async def review_file_action(payload: FileActionRequest):
 
 @router.get("/file-data")
 async def review_file_data(fileId: str, limit: int = 25):
-    safe_limit = max(1, min(limit, 100))
+    safe_limit = max(1, min(limit, 10_000))
     with db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
