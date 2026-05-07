@@ -4,8 +4,11 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
-
-type ReviewAction = "accept" | "reject" | "revert"
+import {
+  postReviewFileAction,
+  postReviewRowAction,
+  type ReviewAction,
+} from "@/lib/review-api"
 
 type RowActionButtonsProps = {
   fileId: string
@@ -14,21 +17,6 @@ type RowActionButtonsProps = {
 
 type FileActionButtonsProps = {
   fileId: string
-}
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_FILE_CHANGE_API_BASE_URL ?? "http://localhost:8000"
-
-async function postAction(endpoint: string, payload: Record<string, string>) {
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  })
-  const data = (await response.json()) as { error?: string; detail?: string }
-  if (!response.ok) {
-    throw new Error(data.error ?? data.detail ?? "Action request failed.")
-  }
 }
 
 function actionButtonLabel(action: ReviewAction, scope: "row" | "file"): string {
@@ -50,7 +38,7 @@ export function RowActionButtons({ fileId, rowId }: RowActionButtonsProps) {
     if (isBusy) return
     setIsBusy(true)
     try {
-      await postAction("/review/row-action", { fileId, rowId, action })
+      await postReviewRowAction(fileId, rowId, action)
       router.refresh()
     } finally {
       setIsBusy(false)
@@ -84,7 +72,7 @@ export function FileActionButtons({ fileId }: FileActionButtonsProps) {
     if (isBusy) return
     setIsBusy(true)
     try {
-      await postAction("/review/file-action", { fileId, action })
+      await postReviewFileAction(fileId, action)
       router.refresh()
     } finally {
       setIsBusy(false)

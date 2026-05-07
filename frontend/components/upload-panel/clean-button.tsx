@@ -29,7 +29,7 @@ export function CleanButton({ disabled, loading = false, onClick }: CleanButtonP
           className="text-[#f5f0e8]"
         />
       </span>
-      {loading ? "Uploading..." : "Clean"}
+      {loading ? "Cleaning…" : "Clean"}
     </Button>
   )
 }

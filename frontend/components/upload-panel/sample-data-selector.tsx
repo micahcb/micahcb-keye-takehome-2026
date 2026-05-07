@@ -7,6 +7,8 @@ type SampleDataSelectorProps = {
   sampleDropdownOpen: boolean
   selectedSampleFile: string
   sampleFiles: string[]
+  sampleListLoading?: boolean
+  sampleListError?: string
   sampleDropdownRef: React.RefObject<HTMLDivElement | null>
   onUseSampleData: () => void
   onToggleDropdown: () => void
@@ -18,6 +20,8 @@ export function SampleDataSelector({
   sampleDropdownOpen,
   selectedSampleFile,
   sampleFiles,
+  sampleListLoading = false,
+  sampleListError = "",
   sampleDropdownRef,
   onUseSampleData,
   onToggleDropdown,
@@ -53,8 +57,15 @@ export function SampleDataSelector({
           </button>
 
           {sampleDropdownOpen && sampleFiles.length > 0 && (
-            <div className="absolute left-0 top-14 z-20 w-full border border-white/10 bg-[#111214] p-2 shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
-              <div role="listbox" aria-label="Sample files" className="max-h-64 overflow-auto">
+            <div className="absolute left-0 top-14 z-30 w-full border border-white/10 bg-[#111214] p-2 shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
+              <p className="px-2.5 pb-2 font-mono text-[10px] uppercase tracking-wide text-white/45">
+                {sampleFiles.length} file{sampleFiles.length === 1 ? "" : "s"} — scroll if needed
+              </p>
+              <div
+                role="listbox"
+                aria-label="Sample files"
+                className="max-h-[min(22rem,calc(100vh-12rem))] overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
+              >
                 {sampleFiles.map((fileName) => (
                   <button
                     key={fileName}
@@ -76,11 +87,21 @@ export function SampleDataSelector({
             </div>
           )}
 
-          {sampleFiles.length === 0 && (
-            <p className="mt-2 text-xs text-[#384865]">
-              No files found in <code>frontend/test_files</code>.
-            </p>
+          {usingSampleData && sampleListLoading && (
+            <p className="mt-2 text-xs text-[#384865]">Loading sample list from API…</p>
           )}
+          {usingSampleData && !sampleListLoading && sampleListError && (
+            <p className="mt-2 text-xs text-destructive">{sampleListError}</p>
+          )}
+          {usingSampleData &&
+            !sampleListLoading &&
+            !sampleListError &&
+            sampleFiles.length === 0 && (
+              <p className="mt-2 text-xs text-[#384865]">
+                No sample files returned from{" "}
+                <code className="text-[#0a1628]">GET /uploads/samples</code>.
+              </p>
+            )}
         </div>
       )}
     </>
