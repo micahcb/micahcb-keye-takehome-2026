@@ -34,3 +34,31 @@ def download_from_supabase(path: str, bucket: str = SUPABASE_UPLOAD_BUCKET) -> b
     if response.status_code >= 300:
         raise HTTPException(status_code=404, detail="Sample file not found in storage.")
     return response.content
+
+
+def list_supabase_objects(
+    *,
+    bucket: str = SUPABASE_UPLOAD_BUCKET,
+    prefix: str = "",
+    limit: int = 1000,
+) -> list[dict]:
+    base_url = required_env("NEXT_PUBLIC_SUPABASE_URL").rstrip("/")
+    list_url = f"{base_url}/storage/v1/object/list/{bucket}"
+    payload = {
+        "prefix": prefix,
+        "limit": limit,
+        "offset": 0,
+        "sortBy": {"column": "name", "order": "asc"},
+    }
+    response = httpx.post(
+        list_url,
+        headers=_auth_headers("application/json"),
+        json=payload,
+        timeout=60,
+    )
+    if response.status_code >= 300:
+        raise HTTPException(status_code=500, detail="Could not list sample files from storage.")
+    data = response.json()
+    if not isinstance(data, list):
+        raise HTTPException(status_code=500, detail="Unexpected storage list response.")
+    return [item for item in data if isinstance(item, dict)]

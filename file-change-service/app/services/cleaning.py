@@ -205,3 +205,4 @@ def run_cleaning_pipeline(file_bytes: bytes, file_id: str) -> dict:
         "row_count": len(diff_rows),
         "cell_count": len(diffs),
     }
+

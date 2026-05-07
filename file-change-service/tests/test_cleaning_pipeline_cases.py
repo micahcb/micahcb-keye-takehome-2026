@@ -209,3 +209,5 @@ def test_pipeline_metadata_consistency(pipeline_result):
     assert returned_row_ids == diff_row_ids
     assert result["row_count"] == len(result["diff_rows"])
     assert result["cell_count"] == len(result["diffs"])
+
+
