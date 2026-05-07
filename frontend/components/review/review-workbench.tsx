@@ -22,7 +22,11 @@ export type DiffRow = {
   status: string
 }
 
-export type RowBundle = { row: DiffRow; diffs: DiffCell[] }
+export type RowBundle = {
+  row: DiffRow
+  diffs: DiffCell[]
+  fullRow?: Record<string, string | number | null>
+}
 
 type ReviewWorkbenchProps = {
   fileId: string
@@ -32,7 +36,21 @@ type ReviewWorkbenchProps = {
     rowsAdded: string
     diffsAdded: string
   }
+  fullColumns: string[]
   initialRows: RowBundle[]
+}
+
+/** Match sticky `left` on column 2 to the pixel width of column 1 or headers overlap when scrolling. */
+const STICKY_ROW_W = 120
+const STICKY_STATUS_W = 152
+/** Pull status column slightly under row to close subpixel gaps (avoids bleed-through when scrolling). */
+const STICKY_COL_OVERLAP = 2
+const STICKY_ROW_LEFT_STYLE = { left: 0, width: STICKY_ROW_W, minWidth: STICKY_ROW_W, maxWidth: STICKY_ROW_W }
+const STICKY_STATUS_LEFT_STYLE = {
+  left: STICKY_ROW_W - STICKY_COL_OVERLAP,
+  width: STICKY_STATUS_W + STICKY_COL_OVERLAP,
+  minWidth: STICKY_STATUS_W + STICKY_COL_OVERLAP,
+  maxWidth: STICKY_STATUS_W + STICKY_COL_OVERLAP,
 }
 
 function titleCaseStatus(status: string): string {
@@ -40,11 +58,16 @@ function titleCaseStatus(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
-function formatCell(n: number | null | undefined): string {
-  if (n === null || n === undefined || Number.isNaN(n)) return "—"
-  const abs = Math.abs(n)
-  if (abs >= 1e7 || (abs > 0 && abs < 1e-4)) return n.toExponential(2)
-  return n.toLocaleString(undefined, { maximumFractionDigits: 4 })
+function formatCell(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return "—"
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) return "—"
+    const abs = Math.abs(value)
+    if (abs >= 1e7 || (abs > 0 && abs < 1e-4)) return value.toExponential(2)
+    return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
+  }
+  if (value.length === 0) return "—"
+  return value
 }
 
 function columnSortKey(name: string): string | number[] {
@@ -75,17 +98,26 @@ function uniqSortedColumns(rows: RowBundle[]): string[] {
   })
 }
 
-function statusStyles(status: string): string {
+function statusStyles(status: string, titleBar = false): string {
   const s = status.toLowerCase()
   if (s === "accepted") return "bg-emerald-500/15 text-emerald-900 border-emerald-700/30"
   if (s === "denied") return "bg-destructive/10 text-destructive border-destructive/30"
-  return "bg-[#89b4fa]/15 text-[#0a1628] border-[#89b4fa]/40"
+  return titleBar ? "bg-[#89b4fa]/15 text-[#f5f0e8] border-[#89b4fa]/40" : "bg-[#89b4fa]/15 text-[#0a1628] border-[#89b4fa]/40"
 }
 
-export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenchProps) {
+function canApplyAction(status: string, action: ReviewAction): boolean {
+  const normalized = status.toLowerCase()
+  if (action === "accept" || action === "reject") return normalized === "suggested"
+  if (action === "revert") return normalized === "accepted" || normalized === "denied"
+  return false
+}
+
+export function ReviewWorkbench({ fileId, summary, fullColumns, initialRows }: ReviewWorkbenchProps) {
   const [rows, setRows] = useState<RowBundle[]>(initialRows)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [pendingRowId, setPendingRowId] = useState<string | null>(null)
+  const [pendingAllRows, setPendingAllRows] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   useEffect(() => {
     setRows(initialRows)
@@ -95,7 +127,10 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
     if (selectedIndex >= rows.length) setSelectedIndex(Math.max(0, rows.length - 1))
   }, [rows.length, selectedIndex])
 
-  const columns = useMemo(() => uniqSortedColumns(rows), [rows])
+  const columns = useMemo(
+    () => (fullColumns.length > 0 ? fullColumns : uniqSortedColumns(rows)),
+    [fullColumns, rows],
+  )
 
   const showToast = useCallback((msg: string) => {
     setToast(msg)
@@ -114,7 +149,10 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
     async (action: ReviewAction) => {
       const bundle = rows[selectedIndex]
       if (!bundle || busy) return
+      if (!canApplyAction(bundle.row.status, action)) return
       setBusy(true)
+      setPendingRowId(bundle.row.id)
+      setPendingAllRows(false)
       try {
         const data = (await postReviewRowAction(fileId, bundle.row.id, action)) as {
           status?: string
@@ -125,6 +163,7 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Action failed")
       } finally {
+        setPendingRowId(null)
         setBusy(false)
       }
     },
@@ -134,7 +173,10 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
   const runFileAction = useCallback(
     async (action: ReviewAction) => {
       if (busy) return
+      if (!rows.some((bundle) => canApplyAction(bundle.row.status, action))) return
       setBusy(true)
+      setPendingAllRows(true)
+      setPendingRowId(null)
       try {
         await postReviewFileAction(fileId, action)
         const statusMap: Record<ReviewAction, string> = {
@@ -144,16 +186,21 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
         }
         const next = statusMap[action]
         setRows((prev) =>
-          prev.map((bundle) => ({ ...bundle, row: { ...bundle.row, status: next } })),
+          prev.map((bundle) =>
+            canApplyAction(bundle.row.status, action)
+              ? { ...bundle, row: { ...bundle.row, status: next } }
+              : bundle,
+          ),
         )
         showToast(`All rows: ${titleCaseStatus(next)}`)
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Action failed")
       } finally {
+        setPendingAllRows(false)
         setBusy(false)
       }
     },
-    [busy, fileId, showToast],
+    [busy, fileId, rows, showToast],
   )
 
   useEffect(() => {
@@ -214,6 +261,12 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
   }, [busy, rows.length, runRowAction])
 
   const selectedBundle = rows[selectedIndex]
+  const canAcceptSelected = selectedBundle ? canApplyAction(selectedBundle.row.status, "accept") : false
+  const canRejectSelected = selectedBundle ? canApplyAction(selectedBundle.row.status, "reject") : false
+  const canRevertSelected = selectedBundle ? canApplyAction(selectedBundle.row.status, "revert") : false
+  const canAcceptAny = rows.some((bundle) => canApplyAction(bundle.row.status, "accept"))
+  const canRejectAny = rows.some((bundle) => canApplyAction(bundle.row.status, "reject"))
+  const canRevertAny = rows.some((bundle) => canApplyAction(bundle.row.status, "revert"))
 
   return (
     <div className="flex min-h-svh flex-col">
@@ -234,7 +287,7 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
               size="sm"
               variant="outline"
               className="rounded-none border-[#f5f0e8] text-[#f5f0e8]"
-              disabled={busy || !fileId || rows.length === 0}
+              disabled={busy || !fileId || rows.length === 0 || !canAcceptAny}
               onClick={() => void runFileAction("accept")}
             >
               Accept all
@@ -244,7 +297,7 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
               size="sm"
               variant="outline"
               className="rounded-none border-[#f5f0e8] text-[#f5f0e8]"
-              disabled={busy || !fileId || rows.length === 0}
+              disabled={busy || !fileId || rows.length === 0 || !canRejectAny}
               onClick={() => void runFileAction("reject")}
             >
               Deny all
@@ -254,7 +307,7 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
               size="sm"
               variant="outline"
               className="rounded-none border-[#f5f0e8] text-[#f5f0e8]"
-              disabled={busy || !fileId || rows.length === 0}
+              disabled={busy || !fileId || rows.length === 0 || !canRevertAny}
               onClick={() => void runFileAction("revert")}
             >
               Revert all
@@ -304,7 +357,7 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
                     <>
                       source row index <strong>{selectedBundle.row.source_row_idx}</strong>
                       <span className="mx-2 text-[#5c6b82]">·</span>
-                      <span className={statusStyles(selectedBundle.row.status)}>
+                      <span className={statusStyles(selectedBundle.row.status, true)}>
                         {titleCaseStatus(selectedBundle.row.status)}
                       </span>
                     </>
@@ -312,11 +365,20 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
                     "—"
                   )}
                 </div>
-                <div className="flex flex-wrap gap-2 font-ui">
+                <div className="flex flex-wrap items-center gap-2 font-ui">
+                  {busy && (
+                    <span className="inline-flex items-center text-xs text-[#c9d2df]" role="status">
+                      <span
+                        className="mr-2 inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#f5f0e8] border-t-transparent"
+                        aria-hidden="true"
+                      />
+                      Updating status...
+                    </span>
+                  )}
                   <Button
                     type="button"
                     size="sm"
-                    disabled={busy || !selectedBundle}
+                    disabled={busy || !selectedBundle || !canAcceptSelected}
                     className="rounded-none bg-[#f5f0e8] text-[#0a1628] hover:bg-[#efe8dd]"
                     onClick={() => void runRowAction("accept")}
                   >
@@ -326,7 +388,7 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={busy || !selectedBundle}
+                    disabled={busy || !selectedBundle || !canRejectSelected}
                     className="rounded-none border-[#f5f0e8] text-[#f5f0e8]"
                     onClick={() => void runRowAction("reject")}
                   >
@@ -336,7 +398,7 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={busy || !selectedBundle}
+                    disabled={busy || !selectedBundle || !canRevertSelected}
                     className="rounded-none border-[#f5f0e8] text-[#f5f0e8]"
                     onClick={() => void runRowAction("revert")}
                   >
@@ -349,19 +411,22 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
                 <table className="min-w-max border-collapse font-ui text-xs">
                   <thead>
                     <tr className="border-b border-[#d6cfc3] bg-[#efe8dd] text-left text-[#0a1628]">
-                      <th className="sticky left-0 z-20 min-w-[52px] border-r border-[#d6cfc3] px-2 py-2 font-medium">
-                        #
-                      </th>
-                      <th className="sticky left-[52px] z-20 min-w-[120px] border-r border-[#d6cfc3] px-2 py-2 font-medium">
+                      <th
+                        className="sticky z-[41] box-border overflow-hidden border-r border-[#d6cfc3] bg-[#efe8dd] px-2 py-2 font-medium shadow-[3px_0_0_0_#efe8dd]"
+                        style={STICKY_ROW_LEFT_STYLE}
+                      >
                         Row
                       </th>
-                      <th className="sticky left-[172px] z-20 min-w-[100px] border-r border-[#d6cfc3] px-2 py-2 font-medium">
+                      <th
+                        className="sticky z-[42] box-border overflow-hidden border-r border-[#d6cfc3] bg-[#efe8dd] py-2 pl-[10px] pr-2 font-medium shadow-[3px_0_0_0_#efe8dd]"
+                        style={STICKY_STATUS_LEFT_STYLE}
+                      >
                         Status
                       </th>
                       {columns.map((col) => (
                         <th
                           key={col}
-                          className="min-w-[140px] whitespace-nowrap border-r border-[#d6cfc3] px-2 py-2 font-medium last:border-r-0"
+                          className="relative z-10 min-w-[140px] whitespace-nowrap border-r border-[#d6cfc3] bg-[#efe8dd] px-2 py-2 font-medium last:border-r-0"
                         >
                           {col}
                         </th>
@@ -377,6 +442,10 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
                       const stickyBg = isSelected
                         ? "bg-[#eaf1fe]"
                         : "bg-[#fffbf5] group-hover:bg-[#f7f4ee]"
+                      const rowCrackCover = isSelected
+                        ? "shadow-[3px_0_0_0_#eaf1fe]"
+                        : "shadow-[3px_0_0_0_#fffbf5] group-hover:shadow-[3px_0_0_0_#f7f4ee]"
+                      const statusCrackCover = rowCrackCover
                       return (
                         <tr
                           key={bundle.row.id}
@@ -389,36 +458,47 @@ export function ReviewWorkbench({ fileId, summary, initialRows }: ReviewWorkbenc
                           onClick={() => setSelectedIndex(idx)}
                         >
                           <td
-                            className={`sticky left-0 z-10 border-r border-[#d6cfc3] px-2 py-1.5 tabular-nums text-[#384865] ${stickyBg}`}
-                          >
-                            {idx + 1}
-                          </td>
-                          <td
-                            className={`sticky left-[52px] z-10 border-r border-[#d6cfc3] px-2 py-1.5 tabular-nums font-medium text-[#0a1628] ${stickyBg}`}
+                            className={`sticky z-[21] box-border overflow-hidden truncate border-r border-[#d6cfc3] px-2 py-1.5 tabular-nums font-medium text-[#0a1628] ${stickyBg} ${rowCrackCover}`}
+                            style={STICKY_ROW_LEFT_STYLE}
                           >
                             {bundle.row.source_row_idx}
                           </td>
                           <td
-                            className={`sticky left-[172px] z-10 border-r border-[#d6cfc3] px-2 py-1.5 ${stickyBg}`}
+                            className={`sticky z-[22] box-border overflow-hidden border-r border-[#d6cfc3] py-1.5 pl-[10px] pr-2 ${stickyBg} ${statusCrackCover}`}
+                            style={STICKY_STATUS_LEFT_STYLE}
                           >
-                            <span
-                              className={[
-                                "inline-block rounded-none border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-                                statusStyles(bundle.row.status),
-                              ].join(" ")}
-                            >
-                              {bundle.row.status}
-                            </span>
+                            {pendingAllRows || pendingRowId === bundle.row.id ? (
+                              <span
+                                className="inline-flex items-center rounded-none border border-[#89b4fa]/40 bg-[#89b4fa]/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#0a1628]"
+                                role="status"
+                              >
+                                <span
+                                  className="mr-1 inline-block h-2.5 w-2.5 animate-spin rounded-full border border-[#0a1628] border-t-transparent"
+                                  aria-hidden="true"
+                                />
+                                Updating
+                              </span>
+                            ) : (
+                              <span
+                                className={[
+                                  "inline-block rounded-none border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                                  statusStyles(bundle.row.status),
+                                ].join(" ")}
+                              >
+                                {bundle.row.status}
+                              </span>
+                            )}
                           </td>
                           {columns.map((col) => {
                             const d = diffByCol[col]
+                            const fullRowValue = bundle.fullRow?.[col]
                             if (!d)
                               return (
                                 <td
                                   key={col}
-                                  className="border-r border-[#ebe4da] px-2 py-1.5 text-[#c8c2b8] last:border-r-0"
+                                  className="border-r border-[#ebe4da] px-2 py-1.5 text-[#0a1628] last:border-r-0"
                                 >
-                                  —
+                                  {formatCell(fullRowValue)}
                                 </td>
                               )
                             const changed =

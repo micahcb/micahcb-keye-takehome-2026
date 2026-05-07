@@ -18,6 +18,8 @@
     "@supabase/supabase-js": "^2.105.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "hyparquet": "^1.25.6",
+    "hyparquet-compressors": "^1.1.1",
     "next": "16.1.7",
     "next-themes": "^0.4.6",
     "pg": "^8.20.0",

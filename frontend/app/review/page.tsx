@@ -1,4 +1,5 @@
 import { ReviewWorkbench } from "@/components/review/review-workbench"
+import { getParquetRowsForReview } from "@/lib/review-parquet"
 
 type ReviewPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>
@@ -32,7 +33,14 @@ export default async function ReviewPage({ searchParams }: ReviewPageProps) {
   const cellCount = getQueryValue(params.cells)
   const rowsAdded = getQueryValue(params.rowsAdded)
   const diffsAdded = getQueryValue(params.diffsAdded)
-  let rowsWithDiffs: Array<{ row: DiffRow; diffs: DiffCell[] }> = []
+  const path = getQueryValue(params.path, "")
+  const bucket = getQueryValue(params.bucket, "")
+  let rowsWithDiffs: Array<{
+    row: DiffRow
+    diffs: DiffCell[]
+    fullRow?: Record<string, string | number | null>
+  }> = []
+  let fullColumns: string[] = []
 
   if (fileId) {
     const response = await fetch(
@@ -47,6 +55,19 @@ export default async function ReviewPage({ searchParams }: ReviewPageProps) {
     }
   }
 
+  if (fileId && rowsWithDiffs.length > 0) {
+    const parquetData = await getParquetRowsForReview(
+      fileId,
+      rowsWithDiffs.map((bundle) => bundle.row.source_row_idx),
+      { path, bucket },
+    )
+    fullColumns = parquetData.columns
+    rowsWithDiffs = rowsWithDiffs.map((bundle) => ({
+      ...bundle,
+      fullRow: parquetData.rowsByIndex[bundle.row.source_row_idx] ?? {},
+    }))
+  }
+
   return (
     <ReviewWorkbench
       fileId={fileId}
@@ -56,6 +77,7 @@ export default async function ReviewPage({ searchParams }: ReviewPageProps) {
         rowsAdded,
         diffsAdded,
       }}
+      fullColumns={fullColumns}
       initialRows={rowsWithDiffs}
     />
   )

@@ -31,8 +31,11 @@ export function UploadPanel() {
   const [sampleFiles, setSampleFiles] = useState<string[]>([])
   const [sampleListLoading, setSampleListLoading] = useState(true)
   const [sampleListError, setSampleListError] = useState("")
+  const [isNavigatingToStatus, setIsNavigatingToStatus] = useState(false)
   const [duplicatePromptData, setDuplicatePromptData] = useState<{
     id: string
+    path: string
+    bucket: string
     rowCount: number
     cellCount: number
     insertedDiffRows: number
@@ -108,6 +111,8 @@ export function UploadPanel() {
   const goToReview = useCallback(
     (data: {
       id?: string
+      path?: string
+      bucket?: string
       rowCount?: number
       cellCount?: number
       insertedDiffRows?: number
@@ -119,6 +124,8 @@ export function UploadPanel() {
         cells: String(data.cellCount ?? 0),
         rowsAdded: String(data.insertedDiffRows ?? 0),
         diffsAdded: String(data.insertedDiffs ?? 0),
+        path: data.path ?? "",
+        bucket: data.bucket ?? "",
       })
       router.push(`/review?${searchParams.toString()}`)
     },
@@ -154,6 +161,7 @@ export function UploadPanel() {
         error?: string
         detail?: string
         path?: string
+        bucket?: string
         duplicate?: boolean
         rowCount?: number
         cellCount?: number
@@ -191,8 +199,11 @@ export function UploadPanel() {
             : `Uploaded to bucket: ${data.path ?? selectedLabel}`,
       )
       if (data.duplicate && data.id) {
+        setIsNavigatingToStatus(false)
         setDuplicatePromptData({
           id: data.id,
+          path: data.path ?? "",
+          bucket: data.bucket ?? "",
           rowCount: data.rowCount ?? 0,
           cellCount: data.cellCount ?? 0,
           insertedDiffRows: data.insertedDiffRows ?? 0,
@@ -221,6 +232,7 @@ export function UploadPanel() {
   const onRestartProcess = useCallback(async () => {
     if (!duplicatePromptData || isUploading) return
     setIsUploading(true)
+    setIsNavigatingToStatus(false)
     setInvalidUploadMessage("")
     setUploadStatusMessage("")
     try {
@@ -272,15 +284,30 @@ export function UploadPanel() {
                 type="button"
                 size="sm"
                 className="rounded-none bg-[#0a1628] text-[#f5f0e8] hover:bg-[#13233b]"
-                onClick={() => goToReview(duplicatePromptData)}
+                disabled={isNavigatingToStatus}
+                onClick={() => {
+                  setIsNavigatingToStatus(true)
+                  goToReview(duplicatePromptData)
+                }}
               >
-                See status
+                {isNavigatingToStatus ? (
+                  <>
+                    <span
+                      className="mr-2 inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#f5f0e8] border-t-transparent"
+                      aria-hidden="true"
+                    />
+                    Loading status...
+                  </>
+                ) : (
+                  "See status"
+                )}
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 className="rounded-none border-[#0a1628] text-[#0a1628] hover:bg-[#0a1628] hover:text-[#f5f0e8]"
+                disabled={isNavigatingToStatus}
                 onClick={() => void onRestartProcess()}
               >
                 Restart process
@@ -290,7 +317,11 @@ export function UploadPanel() {
                 size="sm"
                 variant="ghost"
                 className="rounded-none text-[#384865]"
-                onClick={() => setDuplicatePromptData(null)}
+                disabled={isNavigatingToStatus}
+                onClick={() => {
+                  setIsNavigatingToStatus(false)
+                  setDuplicatePromptData(null)
+                }}
               >
                 Cancel
               </Button>
