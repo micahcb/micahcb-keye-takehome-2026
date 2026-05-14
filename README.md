@@ -1,6 +1,7 @@
 # Keye Take-Home Assignment
 
 **Walkthrough (Loom):** [Demo / overview video](https://www.loom.com/share/20cead647b184ba994c96c1768c0d850)
+**Deployed Url:** [Railway Deployment](https://micahcb-keye-takehome-2026-production.up.railway.app/)
 
 This repository contains a take-home submission for **Keye**: a small end-to-end flow for uploading Parquet sales-style data, detecting suggested cell-level corrections, persisting them for review, and driving a review UI in the browser.
 
